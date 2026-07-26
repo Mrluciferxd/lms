@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Neutral surface tokens. Brand tokens (--brand-*) are injected per deployment by
+ * the root layout; these are the industry-neutral greys and status colours that
+ * every brand shares, so a client only has to choose a primary colour.
+ */
+@layer base {
+  :root {
+    --surface: 255 255 255;
+    --surface-muted: 246 247 249;
+    --surface-border: 226 229 234;
+    --content: 17 24 39;
+    --content-muted: 100 110 125;
+
+    --danger: 220 38 38;
+    --success: 22 163 74;
+    --warning: 217 119 6;
+
+    /* Overridden by the layout when a brand sets theme.radius. */
+    --brand-radius: 0.5rem;
+  }
+
+  [data-theme='dark'] {
+    --surface: 12 15 22;
+    --surface-muted: 22 27 36;
+    --surface-border: 39 46 58;
+    --content: 237 240 245;
+    --content-muted: 148 158 173;
+
+    --danger: 248 113 113;
+    --success: 74 222 128;
+    --warning: 251 191 36;
+  }
+
+  * {
+    @apply border-surface-border;
+  }
+
+  body {
+    @apply bg-surface text-content antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Visible focus for keyboard users on every interactive element. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-surface;
+  }
+}

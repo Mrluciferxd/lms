@@ -1,0 +1,1604 @@
+// =============================================================================
+// LMS Platform — data model
+//
+// Deployment model: ONE database per client deployment (white-label).
+// There is no tenantId anywhere. A deployment serves exactly one academy.
+// Client-specific branding, enabled packs and feature flags live in
+// brands/<key>/brand.config.ts and are mirrored into OrgSettings at seed time.
+//
+// Industry-agnostic by construction. Anything vertical-specific (forex trade
+// journals, economic calendars, ...) is expressed through the generic
+// JournalDefinition / TrackerDefinition / DataWidgetDefinition models and
+// seeded by a vertical pack. See docs/03-vertical-packs.md.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7: the connection URL lives in prisma.config.ts for Migrate, and the
+// runtime client receives a driver adapter (see src/server/db.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================================
+// ORG / SETTINGS
+// =============================================================================
+
+/// Singleton row (id = "org"). Runtime-editable mirror of brand.config.ts —
+/// admins change these without a redeploy.
+model OrgSettings {
+  id            String  @id @default("org")
+  name          String
+  legalName     String?
+  supportEmail  String?
+  supportPhone  String?
+  logoLightUrl  String?
+  logoDarkUrl   String?
+  faviconUrl    String?
+  primaryColor  String  @default("#2563eb")
+  accentColor   String?
+  timezone      String  @default("Asia/Kolkata")
+  locale        String  @default("en-IN")
+  currency      String  @default("INR")
+
+  /// Runtime overrides on top of brand.config features. Shape: { "chat": true }
+  featureFlags  Json    @default("{}")
+  /// Enabled vertical pack keys, e.g. ["forex"]
+  enabledPacks  String[] @default([])
+  /// Per-user forensic watermark template, e.g. "{{name}} · {{email}} · {{ip}}"
+  watermarkTemplate String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// IDENTITY & ACCESS
+// =============================================================================
+
+enum Role {
+  OWNER
+  ADMIN
+  INSTRUCTOR
+  STAFF
+  STUDENT
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+model User {
+  id            String     @id @default(cuid())
+  email         String?    @unique
+  emailVerified DateTime?
+  phone         String?    @unique
+  phoneVerified DateTime?
+  passwordHash  String?
+  name          String
+  avatarUrl     String?
+  role          Role       @default(STUDENT)
+  status        UserStatus @default(ACTIVE)
+  timezone      String?
+  locale        String?
+  /// Free-form profile answers; shape driven by brand config onboarding fields.
+  profile       Json       @default("{}")
+  lastActiveAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  devices             Device[]
+  enrollments         Enrollment[]
+  lessonProgress      LessonProgress[]
+  attendance          Attendance[]      @relation("AttendeeUser")
+  attendanceMarked    Attendance[]      @relation("AttendanceMarker")
+  submissions         Submission[]
+  gradedSubmissions   Submission[]      @relation("SubmissionGrader")
+  orders              Order[]
+  notifications       Notification[]
+  channelMemberships  ChannelMember[]
+  messages            Message[]
+  reactions           MessageReaction[]
+  hostedSessions      LiveSession[]     @relation("SessionHost")
+  journalEntries      JournalEntry[]    @relation("JournalAuthor")
+  journalSubjects     JournalEntry[]    @relation("JournalSubject")
+  journalComments     JournalEntryComment[]
+  trackerRecords      TrackerRecord[]   @relation("TrackerSubject")
+  playbackGrants      PlaybackGrant[]
+  uploadedAssets      MediaAsset[]
+  auditLogs           AuditLog[]
+  quizAttempts        QuizAttempt[]
+  certificates        Certificate[]
+
+  @@index([role, status])
+  @@index([createdAt])
+}
+
+/// Auth.js / NextAuth OAuth account linkage.
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+/// Tracked for concurrent-stream limits and leak forensics.
+model Device {
+  id          String   @id @default(cuid())
+  userId      String
+  fingerprint String
+  label       String?
+  userAgent   String?
+  lastIp      String?
+  lastSeenAt  DateTime @default(now())
+  trusted     Boolean  @default(false)
+  revokedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fingerprint])
+  @@index([userId, lastSeenAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String?
+  meta       Json     @default("{}")
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([createdAt])
+}
+
+// =============================================================================
+// CATALOG
+// =============================================================================
+
+enum PublishStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Course {
+  id              String        @id @default(cuid())
+  slug            String        @unique
+  title           String
+  subtitle        String?
+  description     String?       @db.Text
+  thumbnailUrl    String?
+  trailerAssetId  String?
+  status          PublishStatus @default(DRAFT)
+  level           String?
+  language        String        @default("en")
+  tags            String[]      @default([])
+
+  /// Minor units (paise for INR). Null = not directly purchasable.
+  priceMinor          Int?
+  compareAtPriceMinor Int?
+  currency            String  @default("INR")
+
+  /// Null = lifetime access. Otherwise access expires N days after enrollment.
+  accessDurationDays Int?
+
+  seoTitle       String?
+  seoDescription String?
+  ogImageUrl     String?
+
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sections     Section[]
+  batches      Batch[]
+  enrollments  Enrollment[]
+  assignments  Assignment[]
+  resources    Resource[]
+  channels     Channel[]
+  liveSessions LiveSession[]
+  journalEntries JournalEntry[]
+  certificateTemplate CertificateTemplate?
+
+  @@index([status, sortOrder])
+}
+
+/// A chapter within a course. "Section" is deliberate — "module" is reserved
+/// for application feature modules.
+model Section {
+  id        String   @id @default(cuid())
+  courseId  String
+  title     String
+  summary   String?
+  order     Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+
+  @@index([courseId, order])
+}
+
+enum LessonType {
+  VIDEO
+  TEXT
+  PDF
+  QUIZ
+  ASSIGNMENT
+  LIVE
+  EMBED
+}
+
+/// How a lesson becomes visible to an enrolled student.
+enum ReleaseMode {
+  IMMEDIATE
+  DAYS_AFTER_ENROLLMENT
+  DAYS_AFTER_BATCH_START
+  FIXED_DATE
+  AFTER_SESSION
+  MANUAL
+}
+
+model Lesson {
+  id        String     @id @default(cuid())
+  sectionId String
+  title     String
+  summary   String?
+  type      LessonType @default(VIDEO)
+  order     Int        @default(0)
+
+  /// Rich text / block content for TEXT lessons.
+  content       Json?
+  videoAssetId  String?
+  attachmentIds String[] @default([])
+  embedUrl      String?
+  durationSec   Int?
+
+  /// Free preview outside of enrollment (used on landing pages).
+  isPreview     Boolean @default(false)
+  isMandatory   Boolean @default(true)
+
+  // --- Drip release ---
+  releaseMode       ReleaseMode @default(IMMEDIATE)
+  /// Day offset for DAYS_AFTER_* modes.
+  releaseOffsetDays Int?
+  /// Scheduled date for FIXED_DATE mode.
+  releaseAt         DateTime?
+  /// Gate for AFTER_SESSION mode.
+  releaseAfterSessionId String?
+  /// When an instructor released this lesson under MANUAL mode. Kept separate
+  /// from releaseAt so "scheduled for" and "was released at" never share a
+  /// column — they have different affordances in admin and different meanings.
+  manuallyReleasedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  section    Section     @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  videoAsset MediaAsset? @relation("LessonVideo", fields: [videoAssetId], references: [id], onDelete: SetNull)
+  releaseAfterSession LiveSession? @relation("LessonReleaseGate", fields: [releaseAfterSessionId], references: [id], onDelete: SetNull)
+
+  progress    LessonProgress[]
+  assignments Assignment[]
+  quizzes     Quiz[]
+
+  @@index([sectionId, order])
+  @@index([videoAssetId])
+}
+
+// =============================================================================
+// BATCHES / COHORTS
+// =============================================================================
+
+enum BatchStatus {
+  UPCOMING
+  ENROLLING
+  RUNNING
+  COMPLETED
+  CANCELLED
+}
+
+model Batch {
+  id          String      @id @default(cuid())
+  courseId    String
+  name        String
+  code        String      @unique
+  description String?
+  status      BatchStatus @default(UPCOMING)
+  startDate   DateTime
+  endDate     DateTime?
+  capacity    Int?
+  instructorId String?
+
+  /// Recurring class schedule, e.g.
+  /// { "rrule": "FREQ=WEEKLY;BYDAY=MO,WE,FR", "startTime": "19:00", "durationMin": 90 }
+  schedule Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course       Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  enrollments  Enrollment[]
+  liveSessions LiveSession[]
+  assignments  Assignment[]
+  resources    Resource[]
+  channels     Channel[]
+  journalEntries JournalEntry[]
+  trackerRecords TrackerRecord[]
+
+  @@index([courseId, status])
+  @@index([startDate])
+}
+
+enum EnrollmentStatus {
+  PENDING
+  ACTIVE
+  PAUSED
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+enum EnrollmentSource {
+  PURCHASE
+  MANUAL
+  IMPORT
+  COMP
+}
+
+model Enrollment {
+  id       String           @id @default(cuid())
+  userId   String
+  courseId String
+  batchId  String?
+  status   EnrollmentStatus @default(ACTIVE)
+  source   EnrollmentSource @default(PURCHASE)
+
+  enrolledAt DateTime  @default(now())
+  startsAt   DateTime?
+  expiresAt  DateTime?
+  completedAt DateTime?
+
+  /// Denormalized progress cache, recomputed on lesson completion.
+  percentComplete Int       @default(0)
+  lastActivityAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course       Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  batch        Batch?        @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  feeSchedule  FeeSchedule?
+  certificate  Certificate?
+
+  @@unique([userId, courseId, batchId])
+  @@index([courseId, status])
+  @@index([batchId, status])
+  @@index([userId, status])
+}
+
+// =============================================================================
+// LIVE SESSIONS & ATTENDANCE
+// =============================================================================
+
+enum SessionKind {
+  /// Scheduled class for a batch. Tracks attendance.
+  CLASS
+  /// Open broadcast (forex pack labels this "Live Market Session").
+  BROADCAST
+  WEBINAR
+  DOUBT_CLEARING
+  EVENT
+}
+
+enum SessionMode {
+  ONLINE
+  OFFLINE
+  HYBRID
+}
+
+enum SessionStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+  CANCELLED
+}
+
+enum SessionVisibility {
+  PUBLIC
+  ENROLLED
+  BATCH
+  ROLE
+}
+
+/// Covers both batch classes and standalone live broadcasts. The forex pack
+/// relabels BROADCAST as "Live Market Session" via pack label overrides —
+/// no separate table.
+model LiveSession {
+  id          String            @id @default(cuid())
+  kind        SessionKind       @default(CLASS)
+  title       String
+  description String?
+  batchId     String?
+  courseId    String?
+  hostId      String?
+
+  scheduledStart DateTime
+  scheduledEnd   DateTime?
+  actualStart    DateTime?
+  actualEnd      DateTime?
+
+  mode           SessionMode       @default(ONLINE)
+  status         SessionStatus     @default(SCHEDULED)
+  visibility     SessionVisibility @default(BATCH)
+  location       String?
+  joinUrl        String?
+  streamProvider String?
+  /// Never exposed to the client bundle.
+  streamKey      String?
+  recordingAssetId String?
+
+  tracksAttendance Boolean @default(true)
+  capacity         Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  batch     Batch?      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  course    Course?     @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  host      User?       @relation("SessionHost", fields: [hostId], references: [id], onDelete: SetNull)
+  recording MediaAsset? @relation("SessionRecording", fields: [recordingAssetId], references: [id], onDelete: SetNull)
+
+  attendance    Attendance[]
+  gatedLessons  Lesson[]     @relation("LessonReleaseGate")
+
+  @@index([batchId, scheduledStart])
+  @@index([kind, status, scheduledStart])
+  @@index([scheduledStart])
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum AttendanceMethod {
+  MANUAL
+  SELF
+  AUTO
+  IMPORT
+}
+
+model Attendance {
+  id            String           @id @default(cuid())
+  liveSessionId String
+  userId        String
+  status        AttendanceStatus @default(ABSENT)
+  method        AttendanceMethod @default(MANUAL)
+  joinedAt      DateTime?
+  leftAt        DateTime?
+  durationSec   Int?
+  note          String?
+  markedById    String?
+  markedAt      DateTime         @default(now())
+
+  liveSession LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+  user        User        @relation("AttendeeUser", fields: [userId], references: [id], onDelete: Cascade)
+  markedBy    User?       @relation("AttendanceMarker", fields: [markedById], references: [id], onDelete: SetNull)
+
+  @@unique([liveSessionId, userId])
+  @@index([userId, markedAt])
+  @@index([liveSessionId, status])
+}
+
+// =============================================================================
+// PROGRESS
+// =============================================================================
+
+enum ProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+model LessonProgress {
+  id       String         @id @default(cuid())
+  userId   String
+  lessonId String
+  status   ProgressStatus @default(NOT_STARTED)
+
+  watchedSec      Int       @default(0)
+  lastPositionSec Int       @default(0)
+  firstViewedAt   DateTime?
+  completedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([lessonId, status])
+}
+
+// =============================================================================
+// MEDIA & SECURE PLAYBACK
+// =============================================================================
+
+enum MediaProvider {
+  MUX
+  CLOUDFLARE_STREAM
+  BUNNY_STREAM
+  S3
+  /// Local filesystem. Development only — lets the full upload and signed
+  /// playback flow run without any client provider credentials.
+  LOCAL
+  EXTERNAL
+}
+
+enum MediaType {
+  VIDEO
+  AUDIO
+  PDF
+  IMAGE
+  DOC
+  ARCHIVE
+}
+
+enum MediaStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  ERRORED
+}
+
+model MediaAsset {
+  id              String        @id @default(cuid())
+  provider        MediaProvider
+  providerAssetId String?
+  playbackId      String?
+  type            MediaType     @default(VIDEO)
+  status          MediaStatus   @default(UPLOADING)
+  title           String
+  originalFilename String?
+  durationSec     Int?
+  sizeBytes       BigInt?
+  mimeType        String?
+  thumbnailUrl    String?
+
+  // --- Protection posture. See docs/06-video-security.md ---
+  /// Widevine / FairPlay / PlayReady enforcement.
+  drmEnabled       Boolean @default(true)
+  /// Burn per-viewer identity into the stream for leak forensics.
+  watermarkEnabled Boolean @default(true)
+  /// Direct file download permitted (worksheets: yes, lectures: no).
+  downloadable     Boolean @default(false)
+  /// 0 = inherit org default.
+  maxConcurrentStreams Int @default(0)
+
+  uploadedById String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  uploadedBy User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  lessonVideos       Lesson[]      @relation("LessonVideo")
+  sessionRecordings  LiveSession[] @relation("SessionRecording")
+  resources          Resource[]
+  playbackGrants     PlaybackGrant[]
+
+  @@index([type, status])
+  @@index([providerAssetId])
+}
+
+/// One row per issued playback token. Powers concurrency limits and gives you
+/// an audit trail tying a leaked watermark back to a specific session.
+model PlaybackGrant {
+  id        String   @id @default(cuid())
+  userId    String
+  assetId   String
+  deviceId  String?
+  ip        String?
+  userAgent String?
+  issuedAt  DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([assetId, issuedAt])
+}
+
+// =============================================================================
+// ASSIGNMENTS & RESOURCES  (the proposal's "Student Knowledge Base")
+// =============================================================================
+
+model Assignment {
+  id           String    @id @default(cuid())
+  title        String
+  instructions String?   @db.Text
+  courseId     String?
+  batchId      String?
+  lessonId     String?
+  attachmentIds String[] @default([])
+
+  dueAt               DateTime?
+  maxScore            Int       @default(100)
+  allowLateSubmission Boolean   @default(true)
+  status              PublishStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course Course? @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  batch  Batch?  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  lesson Lesson? @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  submissions Submission[]
+
+  @@index([courseId, dueAt])
+  @@index([batchId, dueAt])
+}
+
+enum SubmissionStatus {
+  DRAFT
+  SUBMITTED
+  RESUBMIT_REQUESTED
+  GRADED
+}
+
+model Submission {
+  id           String           @id @default(cuid())
+  assignmentId String
+  userId       String
+  status       SubmissionStatus @default(DRAFT)
+  contentText  String?          @db.Text
+  attachmentIds String[]        @default([])
+  submittedAt  DateTime?
+  isLate       Boolean          @default(false)
+
+  score      Int?
+  feedback   String?  @db.Text
+  gradedById String?
+  gradedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gradedBy   User?      @relation("SubmissionGrader", fields: [gradedById], references: [id], onDelete: SetNull)
+
+  @@unique([assignmentId, userId])
+  @@index([userId, status])
+}
+
+enum ResourceVisibility {
+  PUBLIC
+  ENROLLED
+  BATCH
+  ROLE
+}
+
+model Resource {
+  id          String             @id @default(cuid())
+  title       String
+  description String?
+  assetId     String?
+  externalUrl String?
+  category    String?
+  courseId    String?
+  batchId     String?
+  visibility  ResourceVisibility @default(ENROLLED)
+  downloadable Boolean           @default(true)
+  sortOrder   Int                @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  asset  MediaAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  course Course?     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  batch  Batch?      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([courseId, category])
+  @@index([batchId, category])
+}
+
+// =============================================================================
+// NOTIFICATIONS / ALERTS ENGINE
+// =============================================================================
+
+enum NotificationChannelType {
+  EMAIL
+  SMS
+  WHATSAPP
+  PUSH
+  IN_APP
+}
+
+/// Built-in triggers the scheduler knows how to evaluate. Packs may add rules
+/// with trigger = CUSTOM and supply their own evaluator.
+enum NotificationTrigger {
+  CLASS_REMINDER
+  SESSION_STARTING
+  FEE_DUE
+  FEE_OVERDUE
+  ASSIGNMENT_DUE
+  ENROLLMENT_CREATED
+  ENROLLMENT_EXPIRING
+  CALENDAR_EVENT
+  DRIP_UNLOCKED
+  CUSTOM
+}
+
+model NotificationTemplate {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  subject   String?
+  /// Handlebars-style body with {{variables}}. One row per template, rendered
+  /// per channel with channel-appropriate stripping.
+  body      String   @db.Text
+  channels  NotificationChannelType[] @default([])
+  /// Documented variables for the admin editor: [{ "key": "student.name" }]
+  variables Json     @default("[]")
+  packKey   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rules         NotificationRule[]
+  notifications Notification[]
+}
+
+model NotificationRule {
+  id         String              @id @default(cuid())
+  key        String              @unique
+  name       String
+  trigger    NotificationTrigger
+  templateId String
+  channels   NotificationChannelType[] @default([])
+  /// Negative = before the anchor event, positive = after.
+  offsetMinutes Int              @default(0)
+  /// Extra targeting, e.g. { "role": "STUDENT", "batchIds": ["..."] }
+  audienceFilter Json            @default("{}")
+  enabled    Boolean             @default(true)
+  packKey    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  template      NotificationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  notifications Notification[]
+
+  @@index([trigger, enabled])
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  READ
+  CANCELLED
+}
+
+model Notification {
+  id         String                  @id @default(cuid())
+  userId     String
+  ruleId     String?
+  templateId String?
+  channel    NotificationChannelType
+  status     NotificationStatus      @default(QUEUED)
+
+  subject String?
+  body    String  @db.Text
+  /// Deep link into the app.
+  actionUrl String?
+  payload   Json   @default("{}")
+
+  /// Set for scheduled sends; the worker polls on this.
+  scheduledFor DateTime?
+  sentAt       DateTime?
+  readAt       DateTime?
+  failedAt     DateTime?
+  error        String?
+  attempts     Int      @default(0)
+
+  /// Guards against double-send when the scheduler re-runs.
+  dedupeKey String? @unique
+
+  createdAt DateTime @default(now())
+
+  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rule     NotificationRule?     @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  template NotificationTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledFor])
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+/// Per-user channel opt-outs.
+model NotificationPreference {
+  id      String                  @id @default(cuid())
+  userId  String
+  channel NotificationChannelType
+  /// Null = applies to all triggers.
+  trigger NotificationTrigger?
+  enabled Boolean                 @default(true)
+
+  @@unique([userId, channel, trigger])
+}
+
+// =============================================================================
+// CALENDAR
+// =============================================================================
+
+enum CalendarAudience {
+  ALL
+  ROLE
+  BATCH
+  COURSE
+  USERS
+}
+
+/// Internal gatherings and non-class events (the proposal's "TT-hangouts").
+model CalendarEvent {
+  id          String           @id @default(cuid())
+  title       String
+  description String?
+  kind        String           @default("general")
+  startAt     DateTime
+  endAt       DateTime?
+  allDay      Boolean          @default(false)
+  location    String?
+  joinUrl     String?
+  audience    CalendarAudience @default(ALL)
+  /// Interpreted per audience: role names, batch ids, course ids, user ids.
+  audienceRef String[]         @default([])
+  /// Minutes before start, e.g. [1440, 60].
+  reminderOffsets Int[]        @default([])
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([startAt])
+}
+
+// =============================================================================
+// PAYMENTS
+// =============================================================================
+
+enum PaymentGateway {
+  RAZORPAY
+  STRIPE
+  MANUAL
+}
+
+enum OrderStatus {
+  CREATED
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELLED
+}
+
+model Order {
+  id       String         @id @default(cuid())
+  /// Human-readable, e.g. ORD-2026-0001.
+  number   String         @unique
+  userId   String
+  status   OrderStatus    @default(CREATED)
+  gateway  PaymentGateway @default(RAZORPAY)
+
+  subtotalMinor Int
+  discountMinor Int    @default(0)
+  taxMinor      Int    @default(0)
+  totalMinor    Int
+  currency      String @default("INR")
+
+  couponId        String?
+  gatewayOrderId  String?
+  gatewayPaymentId String?
+  /// Billing snapshot at time of purchase.
+  billing Json @default("{}")
+  notes   Json @default("{}")
+
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coupon   Coupon?     @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  items    OrderItem[]
+  payments Payment[]
+  invoice  Invoice?
+  installments FeeInstallment[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([gatewayOrderId])
+}
+
+model OrderItem {
+  id       String @id @default(cuid())
+  orderId  String
+  courseId String?
+  batchId  String?
+  /// Snapshotted so historical orders survive catalog edits.
+  titleSnapshot String
+  priceMinor    Int
+  quantity      Int    @default(1)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+enum PaymentStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+model Payment {
+  id               String         @id @default(cuid())
+  orderId          String
+  gateway          PaymentGateway
+  gatewayPaymentId String         @unique
+  status           PaymentStatus  @default(CREATED)
+  amountMinor      Int
+  currency         String         @default("INR")
+  method           String?
+  /// Full gateway response for reconciliation.
+  raw              Json           @default("{}")
+  capturedAt       DateTime?
+  refundedMinor    Int            @default(0)
+
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+enum CouponType {
+  PERCENT
+  FLAT
+}
+
+model Coupon {
+  id             String     @id @default(cuid())
+  code           String     @unique
+  type           CouponType @default(PERCENT)
+  /// Percent (0-100) or minor units depending on type.
+  value          Int
+  maxRedemptions Int?
+  usedCount      Int        @default(0)
+  minOrderMinor  Int?
+  validFrom      DateTime?
+  validTo        DateTime?
+  /// Empty = applies to everything.
+  courseIds      String[]   @default([])
+  active         Boolean    @default(true)
+
+  createdAt DateTime @default(now())
+
+  orders Order[]
+}
+
+model Invoice {
+  id       String   @id @default(cuid())
+  orderId  String   @unique
+  number   String   @unique
+  pdfUrl   String?
+  issuedAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+/// Installment plan attached to an enrollment. Drives the proposal's
+/// "Fees Reminders: automated notifications tracking pending dues".
+model FeeSchedule {
+  id           String @id @default(cuid())
+  enrollmentId String @unique
+  totalMinor   Int
+  currency     String @default("INR")
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollment   Enrollment       @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  installments FeeInstallment[]
+}
+
+enum InstallmentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  WAIVED
+  CANCELLED
+}
+
+model FeeInstallment {
+  id            String            @id @default(cuid())
+  feeScheduleId String
+  seq           Int
+  label         String?
+  amountMinor   Int
+  dueDate       DateTime
+  status        InstallmentStatus @default(PENDING)
+  paidAt        DateTime?
+  orderId       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  feeSchedule FeeSchedule @relation(fields: [feeScheduleId], references: [id], onDelete: Cascade)
+  order       Order?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([feeScheduleId, seq])
+  @@index([status, dueDate])
+}
+
+/// Gateway webhook inbox. Unique eventId gives idempotent processing.
+model WebhookEvent {
+  id          String         @id @default(cuid())
+  gateway     PaymentGateway
+  eventId     String
+  type        String
+  payload     Json
+  receivedAt  DateTime       @default(now())
+  processedAt DateTime?
+  error       String?
+  attempts    Int            @default(0)
+
+  @@unique([gateway, eventId])
+  @@index([processedAt])
+}
+
+// =============================================================================
+// COMMUNITY CHAT
+// =============================================================================
+
+enum ChannelType {
+  GLOBAL
+  COURSE
+  BATCH
+  ANNOUNCEMENT
+  DIRECT
+  TOPIC
+}
+
+model Channel {
+  id          String      @id @default(cuid())
+  slug        String      @unique
+  name        String
+  description String?
+  type        ChannelType @default(TOPIC)
+  courseId    String?
+  batchId     String?
+  /// Announcement channels: only staff may post.
+  readOnly    Boolean     @default(false)
+  isModerated Boolean     @default(false)
+  archivedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course  Course?         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  batch   Batch?          @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  members ChannelMember[]
+  messages Message[]
+
+  @@index([type, archivedAt])
+  @@index([batchId])
+}
+
+enum ChannelRole {
+  MEMBER
+  MODERATOR
+}
+
+model ChannelMember {
+  id         String      @id @default(cuid())
+  channelId  String
+  userId     String
+  role       ChannelRole @default(MEMBER)
+  joinedAt   DateTime    @default(now())
+  lastReadAt DateTime?
+  mutedUntil DateTime?
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id            String    @id @default(cuid())
+  channelId     String
+  userId        String
+  body          String    @db.Text
+  attachmentIds String[]  @default([])
+  replyToId     String?
+  pinned        Boolean   @default(false)
+  editedAt      DateTime?
+  deletedAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  channel   Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replyTo   Message?          @relation("MessageThread", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[]         @relation("MessageThread")
+  reactions MessageReaction[]
+
+  @@index([channelId, createdAt])
+  @@index([userId])
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+}
+
+// =============================================================================
+// GENERIC JOURNALS
+//
+// Generalization of the proposal's "Live Trades Journal". A JournalDefinition
+// is a user-defined record type with a field schema; entries validate against
+// it. The forex pack seeds a "trade" definition; a fitness academy would seed
+// "workout"; a bootcamp would seed "project-log". Same tables either way.
+// =============================================================================
+
+model JournalDefinition {
+  id          String  @id @default(cuid())
+  key         String  @unique
+  name        String
+  /// Singular noun for UI copy, e.g. "Trade".
+  singular    String
+  description String?
+  packKey     String?
+  icon        String?
+
+  /// Field definitions. See PackJournalField in src/packs/types.ts:
+  /// [{ "key": "symbol", "label": "Symbol", "type": "text", "required": true }]
+  fieldSchema Json
+
+  /// Derived fields evaluated server-side, e.g.
+  /// [{ "key": "pnl", "label": "P&L", "expr": "(exit - entry) * lotSize" }]
+  computedFields Json @default("[]")
+
+  /// Field keys shown as table columns, in order.
+  listColumns String[] @default([])
+
+  /// Students may create their own entries (vs instructor-only).
+  studentAuthored Boolean @default(true)
+  /// Entries support an open -> closed lifecycle (positions, projects).
+  hasLifecycle    Boolean @default(false)
+  enabled         Boolean @default(true)
+  sortOrder       Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries JournalEntry[]
+
+  @@index([enabled, sortOrder])
+}
+
+enum JournalEntryStatus {
+  DRAFT
+  OPEN
+  CLOSED
+}
+
+enum JournalVisibility {
+  PRIVATE
+  INSTRUCTORS
+  BATCH
+  PUBLIC
+}
+
+model JournalEntry {
+  id           String             @id @default(cuid())
+  definitionId String
+  /// Who wrote it.
+  authorId     String
+  /// Whose record it is, when an instructor logs on a student's behalf.
+  subjectUserId String?
+  courseId     String?
+  batchId      String?
+
+  /// Validated against JournalDefinition.fieldSchema at write time.
+  data Json
+
+  status        JournalEntryStatus @default(OPEN)
+  visibility    JournalVisibility  @default(PRIVATE)
+  attachmentIds String[]           @default([])
+  tags          String[]           @default([])
+
+  openedAt DateTime  @default(now())
+  closedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  definition  JournalDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  author      User              @relation("JournalAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  subjectUser User?             @relation("JournalSubject", fields: [subjectUserId], references: [id], onDelete: SetNull)
+  course      Course?           @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  batch       Batch?            @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  comments JournalEntryComment[]
+
+  @@index([definitionId, status, openedAt])
+  @@index([authorId, openedAt])
+  @@index([batchId, openedAt])
+}
+
+model JournalEntryComment {
+  id        String   @id @default(cuid())
+  entryId   String
+  userId    String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  entry JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([entryId, createdAt])
+}
+
+// =============================================================================
+// TRACKERS
+//
+// Generalization of the proposal's "Facilities & Progress List" and
+// "PC Completion Tracker": named counters, checklists and expiring flags
+// attached to a student, batch, or the org.
+// =============================================================================
+
+enum TrackerType {
+  COUNTER
+  CHECKLIST
+  EXPIRY
+  GAUGE
+  BOOLEAN
+}
+
+enum TrackerScope {
+  STUDENT
+  BATCH
+  GLOBAL
+}
+
+model TrackerDefinition {
+  id          String       @id @default(cuid())
+  key         String       @unique
+  name        String
+  description String?
+  type        TrackerType
+  scope       TrackerScope @default(STUDENT)
+  packKey     String?
+  unit        String?
+  /// Type-specific config, e.g. { "target": 12 } or { "items": [...] }.
+  config      Json         @default("{}")
+  /// Emit a notification when an EXPIRY record nears its date.
+  remindBeforeDays Int?
+  enabled     Boolean      @default(true)
+  sortOrder   Int          @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  records TrackerRecord[]
+
+  @@index([enabled, sortOrder])
+}
+
+model TrackerRecord {
+  id           String @id @default(cuid())
+  definitionId String
+  userId       String?
+  batchId      String?
+
+  /// Shape depends on TrackerDefinition.type:
+  /// COUNTER -> { "count": 7 }
+  /// CHECKLIST -> { "checked": ["item-1"] }
+  /// EXPIRY -> { "active": true }
+  value Json @default("{}")
+
+  expiresAt   DateTime?
+  updatedById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  definition TrackerDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  user       User?             @relation("TrackerSubject", fields: [userId], references: [id], onDelete: Cascade)
+  batch      Batch?            @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([definitionId, userId, batchId])
+  @@index([definitionId, expiresAt])
+  @@index([userId])
+}
+
+// =============================================================================
+// DATA WIDGETS
+//
+// Generalization of the proposal's "Economic Calendar Dashboard". A pack
+// registers a fetch adapter; the platform schedules refreshes and caches
+// snapshots. Swap the adapter and the same UI serves any industry feed.
+// =============================================================================
+
+model DataWidgetDefinition {
+  id          String  @id @default(cuid())
+  key         String  @unique
+  name        String
+  description String?
+  packKey     String?
+  /// Resolves to a DataFeedAdapter registered by a pack.
+  adapterKey  String
+  /// Adapter-specific settings, e.g. { "countries": ["US","IN"] }.
+  config      Json    @default("{}")
+  refreshIntervalSec Int @default(900)
+  /// Where it renders: ["student-dashboard", "admin-dashboard"].
+  surfaces    String[] @default([])
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  snapshots DataWidgetSnapshot[]
+
+  @@index([enabled, sortOrder])
+}
+
+/// Cached adapter output. Keeps third-party rate limits and outages away from
+/// the request path — the widget always has something to render.
+model DataWidgetSnapshot {
+  id           String   @id @default(cuid())
+  definitionId String
+  payload      Json
+  fetchedAt    DateTime @default(now())
+  expiresAt    DateTime
+  error        String?
+
+  definition DataWidgetDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  @@index([definitionId, fetchedAt])
+}
+
+// =============================================================================
+// ASSESSMENTS  (phase 2 — schema reserved so migrations stay additive)
+// =============================================================================
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTI_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  LONG_ANSWER
+}
+
+model Quiz {
+  id             String  @id @default(cuid())
+  lessonId       String?
+  title          String
+  description    String?
+  timeLimitMin   Int?
+  passPercent    Int     @default(60)
+  maxAttempts    Int     @default(0)
+  shuffleQuestions Boolean @default(false)
+  status         PublishStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lesson    Lesson?       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  questions Question[]
+  attempts  QuizAttempt[]
+
+  @@index([lessonId])
+}
+
+model Question {
+  id            String       @id @default(cuid())
+  quizId        String
+  type          QuestionType @default(SINGLE_CHOICE)
+  prompt        String       @db.Text
+  explanation   String?      @db.Text
+  points        Int          @default(1)
+  order         Int          @default(0)
+  /// [{ "id": "a", "text": "...", "correct": true }]
+  options       Json         @default("[]")
+  correctAnswer Json?
+
+  quiz    Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  answers QuizAnswer[]
+
+  @@index([quizId, order])
+}
+
+model QuizAttempt {
+  id          String    @id @default(cuid())
+  quizId      String
+  userId      String
+  startedAt   DateTime  @default(now())
+  submittedAt DateTime?
+  score       Int?
+  maxScore    Int?
+  passed      Boolean?
+
+  quiz    Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers QuizAnswer[]
+
+  @@index([quizId, userId])
+}
+
+model QuizAnswer {
+  id         String   @id @default(cuid())
+  attemptId  String
+  questionId String
+  response   Json
+  isCorrect  Boolean?
+  points     Int      @default(0)
+
+  attempt  QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+}
+
+// =============================================================================
+// CERTIFICATES  (phase 2)
+// =============================================================================
+
+model CertificateTemplate {
+  id             String  @id @default(cuid())
+  courseId       String  @unique
+  name           String
+  backgroundUrl  String?
+  /// Positioned text layers: [{ "key": "student.name", "x": 50, "y": 40 }]
+  layers         Json    @default("[]")
+  /// Minimum course completion percent required to issue.
+  minCompletion  Int     @default(100)
+  enabled        Boolean @default(false)
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+}
+
+model Certificate {
+  id            String   @id @default(cuid())
+  enrollmentId  String   @unique
+  userId        String
+  serial        String   @unique
+  pdfUrl        String?
+  issuedAt      DateTime @default(now())
+  revokedAt     DateTime?
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// =============================================================================
+// MARKETING CMS
+// =============================================================================
+
+model Page {
+  id             String        @id @default(cuid())
+  slug           String        @unique
+  title          String
+  status         PublishStatus @default(DRAFT)
+  /// Block-based content rendered by the marketing renderer.
+  blocks         Json          @default("[]")
+  seoTitle       String?
+  seoDescription String?
+  ogImageUrl     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CONVERTED
+  LOST
+}
+
+model Lead {
+  id        String     @id @default(cuid())
+  name      String
+  email     String?
+  phone     String?
+  message   String?
+  courseId  String?
+  source    String?
+  utm       Json       @default("{}")
+  status    LeadStatus @default(NEW)
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([email])
+}

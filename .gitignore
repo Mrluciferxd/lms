@@ -1,0 +1,26 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Secrets. Deny every .env variant, then re-allow only the committed template.
+# The previous `.env` / `.env.*.local` pair missed files like `.env.test`.
+.env
+.env.*
+!.env.example
+
+# Prisma 7 generates the client into the source tree; it is build output.
+/src/generated/
+
+*.tsbuildinfo
+next-env.d.ts
+
+.DS_Store
+*.log
+npm-debug.log*
+
+.vercel
+.idea/
+.vscode/*
+!.vscode/extensions.json

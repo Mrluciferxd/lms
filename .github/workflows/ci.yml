@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Dummy values so env validation exercises its real code path rather than
+  # being skipped. Nothing here reaches a real service.
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lms_test?schema=public
+  AUTH_SECRET: ci-only-secret-not-used-anywhere-real
+  CRON_SECRET: ci-only-cron-secret-not-used-for-real
+  NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lms_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Validate schema
+        run: npx prisma validate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Applies the committed migrations to an empty database. Catches a migration
+      # that was hand-edited into an unappliable state, and a schema.prisma change
+      # made without a matching migration.
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      # Catches a schema.prisma change committed without a matching migration.
+      # `--exit-code` reports 0 for no diff and 2 for a diff, so 2 is the failure.
+      - name: Detect missing migration
+        run: |
+          createdb() { psql "$DATABASE_URL" -c "CREATE DATABASE lms_shadow" >/dev/null 2>&1 || true; }
+          createdb
+          set +e
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema prisma/schema.prisma \
+            --exit-code
+          status=$?
+          set -e
+          case "$status" in
+            0) echo "schema and migrations agree" ;;
+            2) echo "::error::schema.prisma has changes with no migration. Run: npx prisma migrate dev"; exit 1 ;;
+            *) echo "::error::migrate diff failed with status $status"; exit 1 ;;
+          esac
+        env:
+          SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lms_shadow
+
+      # Smoke-test the per-client onboarding path from docs/04-white-label.md.
+      # Running it twice proves idempotency, which is what makes re-running the
+      # installer a safe way to roll out a pack change.
+      - name: Seed and install packs
+        env:
+          NEXT_PUBLIC_BRAND: nirlep-forex
+          SEED_OWNER_EMAIL: ci-owner@example.com
+          SEED_OWNER_PASSWORD: ci-only-password-not-real
+        run: |
+          npm run db:seed
+          npm run packs:install
+          npm run db:seed
+          npm run packs:install
+
+      # Every brand must build. nirlep-forex is the client; sunrise-academy proves
+      # a second, unrelated vertical works on the same code; demo-academy runs
+      # packs: [] and is the core/pack decoupling regression — a feature that
+      # quietly depends on a pack fails there first.
+      - name: Build every brand
+        run: |
+          for brand in nirlep-forex sunrise-academy demo-academy; do
+            echo "::group::build $brand"
+            NEXT_PUBLIC_BRAND="$brand" npm run build
+            echo "::endgroup::"
+          done
+
+      - name: Assert core does not import packs or brands
+        run: |
+          if grep -rn "packs/forex" src --include='*.ts' --include='*.tsx' | grep -v "^src/packs/"; then
+            echo "::error::core imports a vertical pack directly — go through src/packs/registry.ts"
+            exit 1
+          fi
+          if grep -rn "@brands/" src --include='*.ts' --include='*.tsx' | grep -v "^src/lib/brand/"; then
+            echo "::error::core imports a brand directly — go through src/lib/brand"
+            exit 1
+          fi
+          echo "layering rules hold"
