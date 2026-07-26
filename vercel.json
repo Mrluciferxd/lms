@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "regions": ["bom1"],
+  "crons": [
+    {
+      "path": "/api/cron/notifications",
+      "schedule": "*/10 * * * *"
+    }
+  ],
+  "functions": {
+    "src/app/api/cron/notifications/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/webhooks/razorpay/route.ts": {
+      "maxDuration": 30
+    }
+  }
+}
