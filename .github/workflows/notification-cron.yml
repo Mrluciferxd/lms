@@ -1,0 +1,62 @@
+# Notification scheduler.
+#
+# Vercel's Hobby plan caps cron jobs at once per day, which is useless for
+# reminders that must fire 30 minutes before a class. This workflow drives the
+# same endpoint at a usable cadence instead. The daily cron in vercel.json stays
+# as a safety net in case this workflow is disabled.
+#
+# The scheduler is idempotent by design — every notification carries a
+# deterministic dedupeKey and Notification.dedupeKey is unique — so an overlapping
+# or repeated run is a no-op insert, not a duplicate message. That is what makes
+# it safe to drive from an at-least-once scheduler like this one.
+#
+# Requires two repository secrets:
+#   CRON_SECRET   must match the value set on the Vercel deployment
+#   APP_BASE_URL  e.g. https://lms-techgeekz3.vercel.app
+#
+# Move this to Vercel's native cron if the account moves to Pro.
+
+name: Notification scheduler
+
+on:
+  schedule:
+    # Every 10 minutes. GitHub may delay runs under load; the scheduler's
+    # lookback window covers a missed tick, so a late run still sends.
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  # Never let two runs overlap. Dedupe would make it harmless, but there is no
+  # reason to double the load.
+  group: notification-scheduler
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger scheduler
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_BASE_URL" ]; then
+            echo "::error::CRON_SECRET and APP_BASE_URL repository secrets must be set."
+            exit 1
+          fi
+
+          response=$(curl -sS -w '\n%{http_code}' \
+            --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_BASE_URL/api/cron/notifications")
+
+          body=$(echo "$response" | sed '$d')
+          code=$(echo "$response" | tail -n1)
+
+          echo "$body"
+
+          if [ "$code" != "200" ]; then
+            echo "::error::Scheduler returned HTTP $code"
+            exit 1
+          fi
