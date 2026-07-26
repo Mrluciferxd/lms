@@ -1,7 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "regions": ["bom1"],
+  "_regions_note": "Co-located with the Neon database in us-east-1. Serverless pages issue several queries per render, so a Mumbai function talking to a US-East database would pay ~250ms per query; keeping them together costs the user one network hop for the HTML instead. If the database is later moved to ap-southeast-1/Mumbai, move this to bom1 with it.",
+  "regions": ["iad1"],
   "crons": [
     {
       "path": "/api/cron/notifications",
