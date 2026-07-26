@@ -96,11 +96,24 @@ ships once per deployment. See `docs/04-white-label.md`.
   `ssoProtection: all_except_custom_domains`, which 302s every request to Vercel SSO —
   including the marketing site, the GitHub Actions cron and Razorpay webhooks. It is now
   `preview`, so previews stay protected and production is public.
-- **Vercel blocks deployments whose git author is not a team member**
-  (`blockCode: TEAM_ACCESS_REQUIRED`). Commits must be authored by an email with access
-  to the Techgeekz team; the repo-local `user.email` is set to `bizflip8@gmail.com` for
-  this reason. The alternative is adding the other address as a secondary email on the
-  Vercel account.
+- **Push-triggered deploys are blocked unless the commit author satisfies two separate
+  checks.** This bit twice, with different messages:
+  - `urbanmirror.shop@gmail.com` → `TEAM_ACCESS_REQUIRED`, "must have access to the team
+    Techgeekz"
+  - `bizflip8@gmail.com` → "GitHub could not associate the committer with a GitHub user"
+
+  The author must be an email GitHub maps to a GitHub account **and** that account must be
+  linked to the Vercel team. The repo-local `user.email` is therefore
+  `72061915+Mrluciferxd@users.noreply.github.com` — GitHub's noreply address for the
+  `Mrluciferxd` account, which satisfies both by construction. Global git config is
+  deliberately left untouched.
+
+  CLI deploys (`vercel deploy --prod`) bypass this check entirely, which is why they kept
+  working while push deploys failed. If push deploys start failing again, check the
+  commit author before anything else.
+
+  The same block affects the team's `textile-erp` project, which has been failing to
+  deploy for the same reason.
 - **Video does not work in production yet.** The `LOCAL` provider refuses to run outside
   development because it offers no DRM or watermarking, and Bunny is not configured.
   Uploads return 503 and playback errors, by design, rather than serving unprotected
