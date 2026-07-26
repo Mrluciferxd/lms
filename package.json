@@ -10,7 +10,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "NEXT_PUBLIC_BRAND=demo-academy tsx --test \"src/**/*.test.ts\"",
-    "test:db": "NEXT_PUBLIC_BRAND=nirlep-forex tsx --env-file-if-exists=.env.test --test \"src/**/*.dbtest.ts\"",
+    "test:db": "NEXT_PUBLIC_BRAND=nirlep-forex tsx --env-file-if-exists=.env.test --test-concurrency=1 --test \"src/**/*.dbtest.ts\"",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

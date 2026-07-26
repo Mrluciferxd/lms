@@ -34,6 +34,8 @@ export const CORE_LABELS = {
   'nav.batches': 'Batches',
   'nav.attendance': 'Attendance',
   'nav.payments': 'Payments',
+  'nav.coupons': 'Coupons',
+  'nav.notifications': 'Notifications',
   'nav.reports': 'Reports',
 
   // Domain nouns

@@ -81,6 +81,13 @@ const APP_NAV: readonly CoreNavDefinition[] = [
     feature: 'chat',
   },
   {
+    key: 'notifications',
+    labelKey: 'nav.notifications',
+    href: '/app/notifications',
+    icon: 'bell',
+    order: 95,
+  },
+  {
     key: 'billing',
     labelKey: 'nav.billing',
     href: '/app/billing',
@@ -134,6 +141,22 @@ const ADMIN_NAV: readonly CoreNavDefinition[] = [
     icon: 'credit-card',
     order: 60,
     permission: 'payment:read',
+  },
+  {
+    key: 'coupons',
+    labelKey: 'nav.coupons',
+    href: '/admin/coupons',
+    icon: 'ticket',
+    order: 65,
+    permission: 'payment:manage',
+  },
+  {
+    key: 'notifications',
+    labelKey: 'nav.notifications',
+    href: '/admin/notifications',
+    icon: 'bell',
+    order: 70,
+    permission: 'notification:manage',
   },
   {
     key: 'settings',
