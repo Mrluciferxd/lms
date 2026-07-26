@@ -28,6 +28,22 @@ and created this knowledge base.
 - Protected playback end to end: token issued → renewed → media served `206` (Range) →
   grant released on unmount, with the watermark rendering live viewer identity.
 
+## Deployed
+**Production**: https://lms-techgeekz3.vercel.app (Vercel project `lms`, team
+`techgeekz3`, Hobby plan, region `iad1`).
+
+Database is Neon `neon-aquamarine-lens` in `us-east-1`, connected through the Vercel
+storage integration. Migrations applied, `OrgSettings` seeded, owner account created,
+forex pack installed. Previews stay behind Vercel SSO; production is public.
+
+Verified against production: all 22 primary routes 200 for staff, anonymous requests
+307 to sign-in with `next` preserved, `/api/cron/notifications` 401s without its secret.
+`/app/courses/demo-programme` correctly 404s — that demo course exists only in the local
+dev database, since `prisma/seed.ts` seeds no sample content into a client deployment.
+
+See [deployment.md](./deployment.md) for the hosting decisions and the gotchas that cost
+time (env-pull redaction, deployment protection, git-author blocking).
+
 ## Blocked On
 - **Bunny Stream credentials** — blocks ISSUE-004 (signature verification) and ISSUE-005
   (DRM playback for Chrome/Edge). Client-provisioned; see `docs/04-white-label.md`.

@@ -81,6 +81,26 @@ ships once per deployment. See `docs/04-white-label.md`.
 ## Known gotchas
 - **`vercel.json` is strict.** Unknown properties fail the deploy with
   "Schema verification failed". There is nowhere to put a comment — put it here instead.
+- **`vercel env pull` redacts CLI-added secrets.** It writes the literal string
+  `[SENSITIVE]` in place of any value added through `vercel env add`, while
+  integration-injected values (the Neon `DATABASE_URL*` set) come through intact. Copying
+  a secret out of the pulled file therefore produces the 11-character string
+  `[SENSITIVE]` rather than the secret — which is exactly how `CRON_SECRET` first reached
+  GitHub Actions and produced a 401. When a secret must exist in two places, generate it
+  once into a shell variable and write it to both from there. Never round-trip it through
+  `env pull`.
+- **Changing an env var requires a redeploy.** Serverless functions capture environment
+  at build time; updating a value in the dashboard or CLI does not affect the running
+  deployment until it is rebuilt.
+- **Deployment Protection blocks external callers.** The project defaulted to
+  `ssoProtection: all_except_custom_domains`, which 302s every request to Vercel SSO —
+  including the marketing site, the GitHub Actions cron and Razorpay webhooks. It is now
+  `preview`, so previews stay protected and production is public.
+- **Vercel blocks deployments whose git author is not a team member**
+  (`blockCode: TEAM_ACCESS_REQUIRED`). Commits must be authored by an email with access
+  to the Techgeekz team; the repo-local `user.email` is set to `bizflip8@gmail.com` for
+  this reason. The alternative is adding the other address as a secondary email on the
+  Vercel account.
 - **Video does not work in production yet.** The `LOCAL` provider refuses to run outside
   development because it offers no DRM or watermarking, and Bunny is not configured.
   Uploads return 503 and playback errors, by design, rather than serving unprotected
