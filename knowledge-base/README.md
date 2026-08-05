@@ -84,6 +84,9 @@ src/server/          domain logic, one directory per subsystem
 | catalog-and-drip.md       | When touching courses, lessons, release   |
 | batches-and-attendance.md | When touching cohorts or sessions         |
 | marketing-site.md         | When touching the public site or SEO      |
+| chat.md                   | When touching channels, messages, moderation |
+| assignments.md            | When touching assignments, submissions, grading |
+| journals.md               | When touching journal definitions, entries, computed expressions |
 
 The `docs/` directory holds the original client-facing design documents. This
 `knowledge-base/` is the operational record: what exists, why, and what bites.

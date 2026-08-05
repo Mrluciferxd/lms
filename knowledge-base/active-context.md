@@ -1,15 +1,21 @@
 ## Current Status
-**Last Updated**: 2026-07-26
-**Last Agent Session**: Integrated four parallel subsystems (batches/attendance,
-payments, marketing site, notifications), fixed the DB-test concurrency collision, added
-the missing nav entries and label keys, verified the production build and every route,
-and created this knowledge base.
-**Test Suite Status**: **Passing.** 610 unit (`npm test`) + 71 database-backed
-(`npm run test:db`). `npx tsc --noEmit` clean. Production build succeeds for
-`nirlep-forex` and `demo-academy`.
+**Last Updated**: 2026-08-05
+**Last Agent Session**: Built the journals UI (Phase 2 Week 9 item): pack-seeded
+`JournalDefinition` with computed expressions now has a surface — student
+journal list with sidebar + entry composer rendering every `JournalFieldType`,
+entry detail with comments + lifecycle close/reopen, and a staff review console
+that bypasses visibility per `journal:review`. Pure `decideJournalVisibility` /
+`decideCanAuthor` / `decideEntryVisibility` / `decideCanComment` with a 105-test
+matrix. Verified `demo-academy` and `nirlep-forex` production builds (sequential
+— parallel builds race on `prisma generate`). No schema changes.
+**Test Suite Status**: **Passing.** 853 unit tests (`npm test`).
+`npx tsc --noEmit` clean. Production build succeeds for `nirlep-forex` and
+`demo-academy`.
 
 ## What exists now
-43 routes build. Phase 1 of `docs/05-roadmap.md` is functionally complete:
+52 routes build (was 47; added `/app/journal/[key]`, `/app/journal/[key]/[entryId]`,
+`/admin/journal`, `/admin/journal/[key]`). Phase 1 of `docs/05-roadmap.md` is
+functionally complete; Phase 2 in progress:
 - Foundation: auth, RBAC, brand theming, labels, org settings, pack installer
 - Catalog + secure video: drip release, access authorization, signed playback with a
   grant ledger and concurrency limits, forensic watermarking, admin CRUD, student player
@@ -17,6 +23,13 @@ and created this knowledge base.
 - Payments: checkout, signed webhooks, fee installments, invoices, coupons, reconciliation
 - Marketing site: hub, landing pages, previews, lead capture, SEO
 - Notifications: rendering, idempotent scheduling, delivery worker, in-app inbox
+- **Community chat: channels, messages, reactions, pinning, threads, soft
+  delete, membership, moderation, archive** *(no realtime yet — see chat.md)*
+- **Assignments & grading: course/batch scope, explicit submit, grading queue
+  with score + feedback + return-for-resubmit** *(no DB-backed tests yet)*
+- **Journals: pack-seeded `JournalDefinition` + entry composer for every
+  `JournalFieldType` + comment thread + lifecycle close/reopen + staff review
+  console** *(no DB-backed tests yet — see journals.md)*
 
 ## Verified this session
 - All 22 primary routes return 200 under an authenticated staff session.
@@ -66,9 +79,23 @@ time (env-pull redaction, deployment protection, git-author blocking).
 2. Wire one real notification channel (email is the cheapest) to prove the adapter seam.
 3. Provision hosting + managed Postgres, add a deploy workflow, run migrations there.
 4. Complete Bunny integration as one verified unit: signature, TUS upload, DRM player.
-5. Phase 2 items not yet started: chat/community, assignments and grading, quizzes,
-   certificates, journals UI, trackers UI, data-widget pages
-   (`/app/widgets/[key]` currently 404s and is linked from pack nav).
+5. Chat follow-ups: a `chat.dbtest.ts` (pagination, markChannelRead upsert,
+   mute expiry, deleteMessage idempotency); a realtime seam (SSE/WebSocket)
+   behind `feature.chat` — the pure decisions are already wired for it; see
+   `knowledge-base/chat.md`.
+6. Assignments follow-ups: an `assignments.dbtest.ts` (queue ordering, late
+   flag, grade idempotency, reopen/re-grade transitions); a per-submission
+   notification on grade; student score release gating if scores ever need to
+   hide before a window — the `SCORE_NOT_RELEASED` denial reason is reserved.
+7. Journals follow-ups: a `journals.dbtest.ts` (queue ordering, computed-field
+   null-propagation in `buildScope`, comment cascade on entry delete); a
+   `router.refresh()` in the comment editor instead of `window.location.reload()`;
+   per-field client hints exported from validation.ts so a student can retry
+   without round-tripping.
+8. Phase 2 items not yet started: trackers UI (COUNTER/GAUGE/EXPIRY/CHECKLIST/
+   BOOLEAN records against `TrackerDefinition`), data-widget pages
+   (`/app/widgets/[key]` currently 404s and is linked from pack nav), quizzes,
+   certificates.
 
 ## Do Not Touch
 - `src/server/journals/expression.ts` — hand-written sandbox; do not replace with a
