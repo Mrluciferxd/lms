@@ -33,7 +33,7 @@ safe because no snapshots existed in any database yet.
 **Tests**: 869 unit (was 853; +16 for widgets — 7 access/standalone matrix + 9
 defensive envelope parsing). Typecheck clean. Production build verified for
 `nirlep-forex` and `demo-academy`.
-**Commit**: pending
+**Commit**: `1f77d8f`
 - The snapshot envelope is the load-bearing decoupling: adapters own vendor
   normalization, core re-validates the stored Json on read and renders a
   timeline. No `packs/forex` / `packs/coaching` import anywhere in
