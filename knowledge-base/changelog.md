@@ -1,5 +1,53 @@
 # Changelog
 
+## 2026-08-05 — Phase 2: data-widget pages (cron refresh + standalone page)
+**What**: The data-widget subsystem gets its surface. Adapters now emit a
+normalized `DataWidgetSnapshotPayload` envelope (`items`/`generatedAt`/
+`unavailable`); a new cron route `/api/cron/widgets` refreshes stale snapshots
+off the request path through the pack `dataAdapters` map; and `/app/widgets/[key]`
+renders a timezone-grouped timeline with a setup notice on `unavailable`. The
+shared `CRON_SECRET` gate was extracted to `src/server/cron/authorize.ts` and
+the notifications route refactored onto it.
+**Why**: Third Week 9 subsystem (alongside journals and trackers). The
+forex/coaching pack nav items link `/app/widgets/forex.economic-calendar` and
+`/app/widgets/coaching.exam-calendar`, which 404'd — the declarative widget rows
+and adapters existed with no page and no refresh job to fill a snapshot.
+**Impact**: 2 new routes (`/app/widgets/[key]`, `/api/cron/widgets`). Core
+learns exactly one widget payload shape — the envelope in `src/packs/types.ts`
+— so the same page serves an economic calendar and an exam calendar with zero
+industry knowledge. Adapter payloads changed shape (events/dates → items);
+safe because no snapshots existed in any database yet.
+**Files Changed**:
+- New: `src/server/widgets/{access,widgets,refresh}.ts`,
+  `src/server/widgets/{access,widgets}.test.ts`,
+  `src/server/cron/authorize.ts`,
+  `src/app/api/cron/widgets/route.ts`,
+  `src/app/app/widgets/[key]/page.tsx`,
+  `knowledge-base/widgets.md`.
+- Modified: `src/packs/types.ts` (envelope contract),
+  `src/packs/forex/economic-calendar.ts`, `src/packs/coaching/exam-calendar.ts`
+  (emit envelope), `src/app/api/cron/notifications/route.ts` (use shared gate),
+  `knowledge-base/{README,testing,active-context}.md`.
+- No schema change — `DataWidgetDefinition`/`DataWidgetSnapshot` were already
+  in the original migration.
+**Tests**: 869 unit (was 853; +16 for widgets — 7 access/standalone matrix + 9
+defensive envelope parsing). Typecheck clean. Production build verified for
+`nirlep-forex` and `demo-academy`.
+**Commit**: pending
+- The snapshot envelope is the load-bearing decoupling: adapters own vendor
+  normalization, core re-validates the stored Json on read and renders a
+  timeline. No `packs/forex` / `packs/coaching` import anywhere in
+  `src/server`; the worker reaches adapters only through `@/lib/brand`'s
+  `dataAdapters` map.
+- Fetching is cron-only and `refresh.ts` is the sole snapshot writer. An
+  in-flight map collapses overlapping cron runs into one vendor call; a throw
+  is recorded in the snapshot `error` column and retried on the transient
+  cadence, so a lapsed API key renders a setup notice instead of breaking a
+  page (client owns the subscription per the proposal's exclusions).
+- Standalone is opt-in: a widget without the `standalone` surface 404s on
+  direct URL access; disabling a widget ices the route and the nav, matching
+  the 404-over-403 and "hiding a link is not gating" postures.
+
 ## 2026-08-05 — Phase 2: journals UI (server + student UI + review console)
 **What**: The journals subsystem — pack-seeded `JournalDefinition` records
 (fields plus computed expressions) finally have a UI. Students get a journal
@@ -26,7 +74,7 @@ declared in forex/coaching now resolve.
 **Tests**: 853 unit (was 748; +105 for journals — 76 visibility/comment
 matrix + 29 validation of every `JournalFieldType`). Typecheck clean.
 Production build verified for `nirlep-forex` and `demo-academy`.
-**Commit**: pending
+**Commit**: `4cd601a`
 - Core owns its own `JournalFieldType` union mirroring the pack contract — the
   pack writes the JSON, core parses it back as data. `core never imports a
   pack` is preserved; verified with `grep -rn "from '@/packs" src/server/journals`
@@ -66,7 +114,7 @@ referencing `/app/assignments/[id]` now resolve to a real page.
 typecheck clean, production build verified for `nirlep-forex` and
 `demo-academy`. Also deleted a build-breaking `ChannelType` cruft import the
 parallel prisma-generate race exposed.
-**Commit**: pending
+**Commit**: `95f2d66`
 - `decideCanSubmit` takes `now` as an argument so the late policy is enforced
   at submit time against the server clock — a form that rendered on time can be
   past due when Submit lands.
@@ -107,7 +155,7 @@ for `nirlep-forex` and `demo-academy`. The `demo-academy` build — the
 core/pack coupling regression target — caught a real layering bug during this
 work: a `'use client'` component had transitively imported `db.ts` via
 `@/server/chat/membership`. Removed; build clean.
-**Commit**: pending
+**Commit**: `4f34b2d`
 - The layering rule (core never imports a pack; client never imports a
   server-only module) is enforced by build, not by review. The
   `NEXT_PUBLIC_BRAND=demo-academy` build verified it — without that step the

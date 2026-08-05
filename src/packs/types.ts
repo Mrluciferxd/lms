@@ -171,6 +171,40 @@ export interface PackDataWidget {
 }
 
 // -----------------------------------------------------------------------------
+// Widget snapshot envelope — the one payload shape core knows how to render
+// -----------------------------------------------------------------------------
+
+/** One row of a cached widget feed, normalized so core can render any industry. */
+export interface DataWidgetItem {
+  id: string
+  /** ISO 8601 UTC. The UI localises to the org timezone. */
+  at: string
+  title: string
+  /**
+   * Short chip label — "HIGH", "EXAM", "APPLICATION_CLOSES", ... The adapter
+   * owns the vocabulary; core renders it as an opaque badge.
+   */
+  badge?: string | null
+  /** Secondary line under the title, e.g. actual/forecast/previous. */
+  detail?: string | null
+  /** External link the feed publishes, e.g. an official notification page. */
+  url?: string | null
+}
+
+/**
+ * The payload every `DataFeedAdapter.fetch` returns. Adapters own all vendor
+ * normalization; the snapshot is opaque Json to the database and this envelope
+ * to the UI, so core renders a timeline without knowing an industry. That is
+ * what lets the same page serve an economic calendar and an exam calendar.
+ */
+export interface DataWidgetSnapshotPayload {
+  items: DataWidgetItem[]
+  generatedAt: string
+  /** Present when no data could be retrieved. Drives the UI's setup notice. */
+  unavailable?: { reason: string }
+}
+
+// -----------------------------------------------------------------------------
 // Navigation, notifications, dashboard
 // -----------------------------------------------------------------------------
 

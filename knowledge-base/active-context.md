@@ -1,21 +1,21 @@
 ## Current Status
 **Last Updated**: 2026-08-05
-**Last Agent Session**: Built the journals UI (Phase 2 Week 9 item): pack-seeded
-`JournalDefinition` with computed expressions now has a surface — student
-journal list with sidebar + entry composer rendering every `JournalFieldType`,
-entry detail with comments + lifecycle close/reopen, and a staff review console
-that bypasses visibility per `journal:review`. Pure `decideJournalVisibility` /
-`decideCanAuthor` / `decideEntryVisibility` / `decideCanComment` with a 105-test
-matrix. Verified `demo-academy` and `nirlep-forex` production builds (sequential
-— parallel builds race on `prisma generate`). No schema changes.
-**Test Suite Status**: **Passing.** 853 unit tests (`npm test`).
+**Last Agent Session**: Built the data-widget pages (Phase 2 Week 9 item): the
+forex/coaching adapters now emit a normalized `DataWidgetSnapshotPayload`
+envelope, a cron route (`/api/cron/widgets`) refreshes snapshots off the request
+path through the pack `dataAdapters` map, and `/app/widgets/[key]` renders a
+timezone-grouped timeline (setup notice on `unavailable`, 404 for non-standalone
+or disabled widgets). Shared `CRON_SECRET` gate extracted to
+`src/server/cron/authorize.ts` (notifications route refactored onto it).
+Verified `demo-academy` and `nirlep-forex` production builds (sequential —
+parallel builds race on `prisma generate`). No schema changes.
+**Test Suite Status**: **Passing.** 869 unit tests (`npm test`).
 `npx tsc --noEmit` clean. Production build succeeds for `nirlep-forex` and
 `demo-academy`.
 
 ## What exists now
-52 routes build (was 47; added `/app/journal/[key]`, `/app/journal/[key]/[entryId]`,
-`/admin/journal`, `/admin/journal/[key]`). Phase 1 of `docs/05-roadmap.md` is
-functionally complete; Phase 2 in progress:
+54 routes build (was 52; added `/app/widgets/[key]`, `/api/cron/widgets`).
+Phase 1 of `docs/05-roadmap.md` is functionally complete; Phase 2 in progress:
 - Foundation: auth, RBAC, brand theming, labels, org settings, pack installer
 - Catalog + secure video: drip release, access authorization, signed playback with a
   grant ledger and concurrency limits, forensic watermarking, admin CRUD, student player
@@ -30,6 +30,9 @@ functionally complete; Phase 2 in progress:
 - **Journals: pack-seeded `JournalDefinition` + entry composer for every
   `JournalFieldType` + comment thread + lifecycle close/reopen + staff review
   console** *(no DB-backed tests yet — see journals.md)*
+- **Data widgets: normalized snapshot envelope + cron refresh worker +
+  standalone `/app/widgets/[key]` timeline page** *(refresh worker has no
+  DB-backed tests yet — see widgets.md)*
 
 ## Verified this session
 - All 22 primary routes return 200 under an authenticated staff session.
@@ -93,9 +96,11 @@ time (env-pull redaction, deployment protection, git-author blocking).
    per-field client hints exported from validation.ts so a student can retry
    without round-tripping.
 8. Phase 2 items not yet started: trackers UI (COUNTER/GAUGE/EXPIRY/CHECKLIST/
-   BOOLEAN records against `TrackerDefinition`), data-widget pages
-   (`/app/widgets/[key]` currently 404s and is linked from pack nav), quizzes,
-   certificates.
+   BOOLEAN records against `TrackerDefinition`), quizzes, certificates.
+9. Widgets follow-ups: a `widgets.dbtest.ts` (fresh snapshot skipped, expired
+   refreshed, throw recorded as `error` with bounded retry cadence); an
+   `/admin/widgets` console with the setup checklist + refresh-now button;
+   dashboard surfaces rendering on the app / admin dashboards.
 
 ## Do Not Touch
 - `src/server/journals/expression.ts` — hand-written sandbox; do not replace with a

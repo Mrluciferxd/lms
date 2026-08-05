@@ -13,8 +13,8 @@
  */
 
 import { NextResponse } from 'next/server'
-import { timingSafeEqual } from 'node:crypto'
 
+import { authorizeCron } from '@/server/cron/authorize'
 import { runScheduler } from '@/server/notifications/scheduler'
 import { requeueStalledSends, runDeliveryWorker } from '@/server/notifications/worker'
 import { MAX_LOOKBACK_MINUTES } from '@/server/notifications/schedule'
@@ -23,24 +23,6 @@ import { MAX_LOOKBACK_MINUTES } from '@/server/notifications/schedule'
 export const dynamic = 'force-dynamic'
 
 type Phase = 'schedule' | 'deliver' | 'both'
-
-/**
- * Constant-time comparison. A cron endpoint that mutates state is worth
- * protecting from a timing oracle even though the window is narrow — the secret
- * is long-lived and the endpoint is unauthenticated by design.
- */
-function secretMatches(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided)
-  const b = Buffer.from(expected)
-  if (a.length !== b.length) return false
-  return timingSafeEqual(a, b)
-}
-
-function presentedSecret(request: Request): string | null {
-  const authorization = request.headers.get('authorization')
-  if (authorization?.startsWith('Bearer ')) return authorization.slice(7)
-  return request.headers.get('x-cron-secret')
-}
 
 function parsePhase(value: string | null): Phase {
   return value === 'schedule' || value === 'deliver' ? value : 'both'
@@ -53,24 +35,8 @@ function parseInteger(value: string | null, fallback: number): number {
 }
 
 async function handle(request: Request): Promise<NextResponse> {
-  const expected = process.env.CRON_SECRET
-
-  if (!expected) {
-    // Refusing is the only safe answer. An unset secret must not degrade into an
-    // open endpoint that anyone can use to drain the queue or spam a cohort.
-    return NextResponse.json(
-      { error: 'CRON_SECRET is not configured on this deployment.' },
-      { status: 503, headers: { 'Cache-Control': 'no-store' } },
-    )
-  }
-
-  const presented = presentedSecret(request)
-  if (!presented || !secretMatches(presented, expected)) {
-    return NextResponse.json(
-      { error: 'Not authorized.' },
-      { status: 401, headers: { 'Cache-Control': 'no-store' } },
-    )
-  }
+  const unauthorized = authorizeCron(request)
+  if (unauthorized) return unauthorized
 
   const params = new URL(request.url).searchParams
   const phase = parsePhase(params.get('phase'))

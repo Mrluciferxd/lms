@@ -7,7 +7,7 @@
 ## How to Run Tests
 | Command                                   | What it runs                                    |
 |-------------------------------------------|-------------------------------------------------|
-| `npm test`                                 | All unit tests (`src/**/*.test.ts`), 853 tests  |
+| `npm test`                                 | All unit tests (`src/**/*.test.ts`), 869 tests  |
 | `npm run test:db`                          | Database-backed tests (`src/**/*.dbtest.ts`), 71 |
 | `npx tsx --test src/path/to/one.test.ts`   | A single unit test file                         |
 | `npm run typecheck`                        | `tsc --noEmit`                                  |

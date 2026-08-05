@@ -9,7 +9,13 @@
  * Transport, error mapping and field probing come from ../shared/rest-feed.
  */
 
-import type { DataFeedAdapter, DataFeedContext, DataFeedResult } from '../types'
+import type {
+  DataFeedAdapter,
+  DataFeedContext,
+  DataFeedResult,
+  DataWidgetItem,
+  DataWidgetSnapshotPayload,
+} from '../types'
 import {
   RETRY_UNCONFIGURED_SEC,
   asRow,
@@ -35,11 +41,23 @@ export interface EconomicEvent {
   previous: string | null
 }
 
-export interface EconomicCalendarPayload {
-  events: EconomicEvent[]
-  generatedAt: string
-  /** Present when no data could be retrieved. Drives the UI's setup notice. */
-  unavailable?: { reason: string }
+/** Normalizes an event into the generic widget envelope the core page renders. */
+function toItem(event: EconomicEvent): DataWidgetItem {
+  const figures = [
+    event.actual !== null ? `actual ${event.actual}` : null,
+    event.forecast !== null ? `forecast ${event.forecast}` : null,
+    event.previous !== null ? `previous ${event.previous}` : null,
+  ].filter((part): part is string => part !== null)
+
+  return {
+    id: event.id,
+    at: event.time,
+    title: event.title,
+    badge: event.impact,
+    detail:
+      [event.country, event.currency, figures.join(' · ')].filter(Boolean).join(' · ') || null,
+    url: null,
+  }
 }
 
 export interface EconomicCalendarConfig {
@@ -86,16 +104,16 @@ function normaliseEvent(raw: unknown, index: number): EconomicEvent | null {
 function unavailable(
   reason: string,
   ttlSec: number,
-): DataFeedResult<EconomicCalendarPayload> {
+): DataFeedResult<DataWidgetSnapshotPayload> {
   return {
-    payload: { events: [], generatedAt: new Date().toISOString(), unavailable: { reason } },
+    payload: { items: [], generatedAt: new Date().toISOString(), unavailable: { reason } },
     ttlSec,
   }
 }
 
 export const economicCalendarAdapter: DataFeedAdapter<
   EconomicCalendarConfig,
-  EconomicCalendarPayload
+  DataWidgetSnapshotPayload
 > = {
   key: 'forex.economic-calendar',
   name: 'Economic Calendar (generic REST)',
@@ -127,7 +145,7 @@ export const economicCalendarAdapter: DataFeedAdapter<
 
   async fetch(
     ctx: DataFeedContext<EconomicCalendarConfig>,
-  ): Promise<DataFeedResult<EconomicCalendarPayload>> {
+  ): Promise<DataFeedResult<DataWidgetSnapshotPayload>> {
     const absent = missingEnv(ctx.env, REQUIRED_ENV)
     if (absent.length > 0) {
       return unavailable(
@@ -158,13 +176,14 @@ export const economicCalendarAdapter: DataFeedAdapter<
     const minRank = IMPACT_RANK[ctx.config.minImpact ?? 'LOW']
     const wanted = new Set((ctx.config.currencies ?? []).map((code) => code.toUpperCase()))
 
-    const events = extractRows(outcome.body)
+    const items = extractRows(outcome.body)
       .map(normaliseEvent)
       .filter((event): event is EconomicEvent => event !== null)
       .filter((event) => IMPACT_RANK[event.impact] >= minRank)
       .filter((event) => wanted.size === 0 || (event.currency && wanted.has(event.currency)))
-      .sort((a, b) => a.time.localeCompare(b.time))
+      .map(toItem)
+      .sort((a, b) => a.at.localeCompare(b.at))
 
-    return { payload: { events, generatedAt: new Date().toISOString() } }
+    return { payload: { items, generatedAt: new Date().toISOString() } }
   },
 }

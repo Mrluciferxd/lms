@@ -87,6 +87,7 @@ src/server/          domain logic, one directory per subsystem
 | chat.md                   | When touching channels, messages, moderation |
 | assignments.md            | When touching assignments, submissions, grading |
 | journals.md               | When touching journal definitions, entries, computed expressions |
+| widgets.md                | When touching data feeds, widget pages, or the widget refresh cron |
 
 The `docs/` directory holds the original client-facing design documents. This
 `knowledge-base/` is the operational record: what exists, why, and what bites.

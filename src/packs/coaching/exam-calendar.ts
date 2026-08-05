@@ -7,7 +7,13 @@
  * ../shared/rest-feed. That ratio is the point: the second vertical is cheap.
  */
 
-import type { DataFeedAdapter, DataFeedContext, DataFeedResult } from '../types'
+import type {
+  DataFeedAdapter,
+  DataFeedContext,
+  DataFeedResult,
+  DataWidgetItem,
+  DataWidgetSnapshotPayload,
+} from '../types'
 import {
   RETRY_UNCONFIGURED_SEC,
   asRow,
@@ -38,16 +44,22 @@ export interface ExamDate {
   url: string | null
 }
 
-export interface ExamCalendarPayload {
-  dates: ExamDate[]
-  generatedAt: string
-  unavailable?: { reason: string }
-}
-
 export interface ExamCalendarConfig {
   /** Restrict to the exams this institute coaches for. Empty = all. */
   exams?: string[]
   lookaheadDays?: number
+}
+
+/** Normalizes a date into the generic widget envelope the core page renders. */
+function toItem(date: ExamDate): DataWidgetItem {
+  return {
+    id: date.id,
+    at: date.date,
+    title: date.title,
+    badge: date.milestone,
+    detail: [date.exam, date.board].filter(Boolean).join(' · ') || null,
+    url: date.url,
+  }
 }
 
 const REQUIRED_ENV = ['EXAM_CALENDAR_API_URL', 'EXAM_CALENDAR_API_KEY'] as const
@@ -94,14 +106,17 @@ function normaliseDate(raw: unknown, index: number): ExamDate | null {
   }
 }
 
-function unavailable(reason: string, ttlSec: number): DataFeedResult<ExamCalendarPayload> {
+function unavailable(reason: string, ttlSec: number): DataFeedResult<DataWidgetSnapshotPayload> {
   return {
-    payload: { dates: [], generatedAt: new Date().toISOString(), unavailable: { reason } },
+    payload: { items: [], generatedAt: new Date().toISOString(), unavailable: { reason } },
     ttlSec,
   }
 }
 
-export const examCalendarAdapter: DataFeedAdapter<ExamCalendarConfig, ExamCalendarPayload> = {
+export const examCalendarAdapter: DataFeedAdapter<
+  ExamCalendarConfig,
+  DataWidgetSnapshotPayload
+> = {
   key: 'coaching.exam-calendar',
   name: 'Exam Calendar (generic REST)',
   requiredEnv: [...REQUIRED_ENV],
@@ -121,7 +136,7 @@ export const examCalendarAdapter: DataFeedAdapter<ExamCalendarConfig, ExamCalend
 
   async fetch(
     ctx: DataFeedContext<ExamCalendarConfig>,
-  ): Promise<DataFeedResult<ExamCalendarPayload>> {
+  ): Promise<DataFeedResult<DataWidgetSnapshotPayload>> {
     const absent = missingEnv(ctx.env, REQUIRED_ENV)
     if (absent.length > 0) {
       return unavailable(
@@ -149,12 +164,13 @@ export const examCalendarAdapter: DataFeedAdapter<ExamCalendarConfig, ExamCalend
 
     const wanted = new Set((ctx.config.exams ?? []).map((name) => name.toLowerCase()))
 
-    const dates = extractRows(outcome.body)
+    const items = extractRows(outcome.body)
       .map(normaliseDate)
       .filter((entry): entry is ExamDate => entry !== null)
       .filter((entry) => wanted.size === 0 || (entry.exam && wanted.has(entry.exam.toLowerCase())))
-      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(toItem)
+      .sort((a, b) => a.at.localeCompare(b.at))
 
-    return { payload: { dates, generatedAt: new Date().toISOString() } }
+    return { payload: { items, generatedAt: new Date().toISOString() } }
   },
 }
