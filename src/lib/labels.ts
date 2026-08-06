@@ -27,6 +27,7 @@ export const CORE_LABELS = {
   'nav.resources': 'Resources',
   'nav.community': 'Community',
   'nav.journals': 'Journals',
+  'nav.trackers': 'Trackers',
   'nav.progress': 'Progress',
   'nav.billing': 'Billing',
   'nav.settings': 'Settings',

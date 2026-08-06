@@ -49,6 +49,14 @@ const APP_NAV: readonly CoreNavDefinition[] = [
     feature: 'liveSessions',
   },
   {
+    key: 'trackers',
+    labelKey: 'nav.trackers',
+    href: '/app/trackers',
+    icon: 'activity',
+    order: 50,
+    feature: 'trackers',
+  },
+  {
     key: 'assignments',
     labelKey: 'nav.assignments',
     href: '/app/assignments',
@@ -175,6 +183,15 @@ const ADMIN_NAV: readonly CoreNavDefinition[] = [
     order: 80,
     feature: 'journals',
     permission: 'journal:review',
+  },
+  {
+    key: 'tracker-manage',
+    labelKey: 'nav.trackers',
+    href: '/admin/trackers',
+    icon: 'activity',
+    order: 82,
+    feature: 'trackers',
+    permission: 'tracker:manage',
   },
   {
     key: 'settings',

@@ -1,21 +1,25 @@
 ## Current Status
 **Last Updated**: 2026-08-05
-**Last Agent Session**: Built the data-widget pages (Phase 2 Week 9 item): the
-forex/coaching adapters now emit a normalized `DataWidgetSnapshotPayload`
-envelope, a cron route (`/api/cron/widgets`) refreshes snapshots off the request
-path through the pack `dataAdapters` map, and `/app/widgets/[key]` renders a
-timezone-grouped timeline (setup notice on `unavailable`, 404 for non-standalone
-or disabled widgets). Shared `CRON_SECRET` gate extracted to
-`src/server/cron/authorize.ts` (notifications route refactored onto it).
+**Last Agent Session**: Built the trackers UI (Phase 2 Week 9 item): student
+pages `/app/trackers` (list) + `/app/trackers/[key]` (per-type editor) and an
+admin console `/admin/trackers` + `/admin/trackers/[key]` (gated by
+`tracker:manage`). A shared `TrackerEditor` client component renders all five
+types (COUNTER/BOOLEAN/CHECKLIST/GAUGE weighted-or-simple/EXPIRY) against the
+pack-declared `trackerDefinitions`; the admin detail renders the full subject
+universe (GLOBAL/BATCH/STUDENT) with create-on-empty editors. One `'use server'`
+`updateTracker` action is the only writer, re-checking `decideCanUpdateRecord`
+on every upsert. `nav.trackers` label + APP_NAV/ADMIN_NAV entries added. No
+schema changes (`TrackerDefinition`/`TrackerRecord` were already migrated).
 Verified `demo-academy` and `nirlep-forex` production builds (sequential —
-parallel builds race on `prisma generate`). No schema changes.
-**Test Suite Status**: **Passing.** 869 unit tests (`npm test`).
+parallel builds race on `prisma generate`).
+**Test Suite Status**: **Passing.** 899 unit tests (`npm test`).
 `npx tsc --noEmit` clean. Production build succeeds for `nirlep-forex` and
 `demo-academy`.
 
 ## What exists now
-54 routes build (was 52; added `/app/widgets/[key]`, `/api/cron/widgets`).
-Phase 1 of `docs/05-roadmap.md` is functionally complete; Phase 2 in progress:
+58 routes build (was 54; added `/app/trackers`, `/app/trackers/[key]`,
+`/admin/trackers`, `/admin/trackers/[key]`). Phase 1 of `docs/05-roadmap.md`
+is functionally complete; Phase 2 in progress:
 - Foundation: auth, RBAC, brand theming, labels, org settings, pack installer
 - Catalog + secure video: drip release, access authorization, signed playback with a
   grant ledger and concurrency limits, forensic watermarking, admin CRUD, student player
@@ -33,6 +37,10 @@ Phase 1 of `docs/05-roadmap.md` is functionally complete; Phase 2 in progress:
 - **Data widgets: normalized snapshot envelope + cron refresh worker +
   standalone `/app/widgets/[key]` timeline page** *(refresh worker has no
   DB-backed tests yet — see widgets.md)*
+- **Trackers: student `/app/trackers` list + `/app/trackers/[key]` editor for
+  COUNTER/BOOLEAN/CHECKLIST/GAUGE/EXPIRY; admin `/admin/trackers` console
+  rendering the full subject universe** *(no DB-backed tests yet — see
+  trackers.md)*
 
 ## Verified this session
 - All 22 primary routes return 200 under an authenticated staff session.
@@ -95,12 +103,15 @@ time (env-pull redaction, deployment protection, git-author blocking).
    `router.refresh()` in the comment editor instead of `window.location.reload()`;
    per-field client hints exported from validation.ts so a student can retry
    without round-tripping.
-8. Phase 2 items not yet started: trackers UI (COUNTER/GAUGE/EXPIRY/CHECKLIST/
-   BOOLEAN records against `TrackerDefinition`), quizzes, certificates.
-9. Widgets follow-ups: a `widgets.dbtest.ts` (fresh snapshot skipped, expired
-   refreshed, throw recorded as `error` with bounded retry cadence); an
-   `/admin/widgets` console with the setup checklist + refresh-now button;
-   dashboard surfaces rendering on the app / admin dashboards.
+8. Phase 2 items not yet started: quizzes, certificates.
+9. Trackers follow-ups: a `trackers.dbtest.ts` (record upsert by partial-nullable
+   composite unique; reminder firing against `remindBeforeDays`; admin
+   subject-universe merges existing records); dashboard surfaces rendering
+   relevant tracker cards on the app/admin dashboards.
+10. Widgets follow-ups: a `widgets.dbtest.ts` (fresh snapshot skipped, expired
+    refreshed, throw recorded as `error` with bounded retry cadence); an
+    `/admin/widgets` console with the setup checklist + refresh-now button;
+    dashboard surfaces rendering on the app / admin dashboards.
 
 ## Do Not Touch
 - `src/server/journals/expression.ts` — hand-written sandbox; do not replace with a

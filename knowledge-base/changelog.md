@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-08-05 — Phase 2: trackers UI (student surface + admin console)
+**What**: The trackers subsystem gets its surface. New student pages
+`/app/trackers` (list) and `/app/trackers/[key]` (per-type editor) render the
+three pack-declared trackers (`forex.challenge-progress` GAUGE,
+`coaching.syllabus-completion` GAUGE, `coaching.tests-attempted` COUNTER,
+`coaching.test-series-access` EXPIRY) with a shared `TrackerEditor` that knows
+all five types (COUNTER/BOOLEAN/CHECKLIST/GAUGE weighted-or-simple/EXPIRY). A
+new admin console (`/admin/trackers` + `/admin/trackers/[key]`, gated by
+`tracker:manage`) renders the full subject universe — GLOBAL single record,
+BATCH per-batch, STUDENT per-active-student — with create-on-empty editors so
+an admin can grant an EXPIRY (test-series access) the student cannot self-grant.
+**Why**: Third Week 9 subsystem (journals and data-widgets shipped; trackers
+was the third). The schema, pack declarations, feature flag and
+`tracker:manage` permission all existed with no routes, no nav and no editor.
+**Impact**: 4 new routes (`/app/trackers`, `/app/trackers/[key]`,
+`/admin/trackers`, `/admin/trackers/[key]`). Core learns one per-type value
+shape via `normalizeTrackerUpdate`/`parseRecordValue`; the editor is a single
+client component shared by the student and admin surfaces. The
+`decideCanUpdateRecord` rule keeps EXPIRY/BATCH/GLOBAL staff-only while a
+STUDENT-scope non-EXPIRY tracker is owner-writable — the student
+"self-log progress" surface.
+**Files Changed**:
+- New: `src/server/trackers/{validation,access,trackers,actions}.ts` +
+  `{validation,access}.test.ts`, `src/components/trackers/tracker-editor.tsx`,
+  `src/app/app/trackers/page.tsx`, `src/app/app/trackers/[key]/page.tsx`,
+  `src/app/admin/trackers/page.tsx`, `src/app/admin/trackers/[key]/page.tsx`.
+- Modified: `src/lib/labels.ts` (`nav.trackers`), `src/lib/nav.ts` (APP_NAV +
+  ADMIN_NAV entries).
+- No schema change — `TrackerDefinition`/`TrackerRecord` were already in the
+  original migration.
+**Tests**: 899 unit (was 869; +30 — validation config/normalize/parse/progress/
+expiry-logic across all five types, plus the access matrix for read + the four
+write scopes). Typecheck clean. Production build verified for `nirlep-forex`
+and `demo-academy`.
+**Decisions**:
+- One action covers every type: the input is tagged by `TrackerUpdate.type`
+  and `normalizeTrackerUpdate` is the single source of truth — same posture as
+  the data-widget envelope. A type mismatch between the definition row and the
+  payload refuses with "Tracker type mismatch".
+- Admin detail renders the full subject universe (every batch / every active
+  student) with a per-subject editor, so an EXPIRY grant has a path even when
+  no record exists yet. Synthetic empty records are produced by the server
+  read, not the page, so the editor stays mock-free.
+- The editor calls `router.refresh()` on success; no `revalidatePath`. The
+  access matrix is the security boundary, not the form.
+
 ## 2026-08-05 — Phase 2: data-widget pages (cron refresh + standalone page)
 **What**: The data-widget subsystem gets its surface. Adapters now emit a
 normalized `DataWidgetSnapshotPayload` envelope (`items`/`generatedAt`/
