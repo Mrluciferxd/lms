@@ -1,24 +1,21 @@
 ## Current Status
-**Last Updated**: 2026-08-05
-**Last Agent Session**: Built the trackers UI (Phase 2 Week 9 item): student
-pages `/app/trackers` (list) + `/app/trackers/[key]` (per-type editor) and an
-admin console `/admin/trackers` + `/admin/trackers/[key]` (gated by
-`tracker:manage`). A shared `TrackerEditor` client component renders all five
-types (COUNTER/BOOLEAN/CHECKLIST/GAUGE weighted-or-simple/EXPIRY) against the
-pack-declared `trackerDefinitions`; the admin detail renders the full subject
-universe (GLOBAL/BATCH/STUDENT) with create-on-empty editors. One `'use server'`
-`updateTracker` action is the only writer, re-checking `decideCanUpdateRecord`
-on every upsert. `nav.trackers` label + APP_NAV/ADMIN_NAV entries added. No
-schema changes (`TrackerDefinition`/`TrackerRecord` were already migrated).
-Verified `demo-academy` and `nirlep-forex` production builds (sequential —
-parallel builds race on `prisma generate`).
-**Test Suite Status**: **Passing.** 899 unit tests (`npm test`).
+**Last Updated**: 2026-08-07
+**Last Agent Session**: Built the quizzes subsystem (Phase 2 Week 9 item):
+server layer (`src/server/quizzes/{validation,access,quizzes,actions}.ts`) with
+auto-grading for SINGLE_CHOICE / MULTI_CHOICE / TRUE_FALSE and a pending-grade
+path for SHORT/LONG_ANSWER, an admin console (`/admin/quizzes` + `/new` +
+`/[id]`, gated by `course:write`) with a question editor, a student index +
+taker (`/app/quizzes` + `/[id]`) with attempt history, and a "Take quiz" embed
+link on the lesson page. `BrandFeatures.quizzes` defaults false — opt-in per
+brand. No schema changes (quiz models were already migrated).
+**Test Suite Status**: **Passing.** 926 unit tests (`npm test`).
 `npx tsc --noEmit` clean. Production build succeeds for `nirlep-forex` and
-`demo-academy`.
+`demo-academy` (sequential — parallel builds race on `prisma generate`).
 
 ## What exists now
-58 routes build (was 54; added `/app/trackers`, `/app/trackers/[key]`,
-`/admin/trackers`, `/admin/trackers/[key]`). Phase 1 of `docs/05-roadmap.md`
+63 routes build (was 58; added `/app/quizzes`, `/app/quizzes/[id]`,
+`/admin/quizzes`, `/admin/quizzes/new`, `/admin/quizzes/[id]`). Phase 1 of
+`docs/05-roadmap.md`
 is functionally complete; Phase 2 in progress:
 - Foundation: auth, RBAC, brand theming, labels, org settings, pack installer
 - Catalog + secure video: drip release, access authorization, signed playback with a
@@ -41,6 +38,12 @@ is functionally complete; Phase 2 in progress:
   COUNTER/BOOLEAN/CHECKLIST/GAUGE/EXPIRY; admin `/admin/trackers` console
   rendering the full subject universe** *(no DB-backed tests yet — see
   trackers.md)*
+- **Quizzes: auto-graded SINGLE/MULTI/TRUE_FALSE with a pending-grade path for
+  subjective answers; student index + taker + attempt history; admin console
+  with a question editor; "Take quiz" embed on the lesson page.
+  `BrandFeatures.quizzes` defaults false — opt-in per brand** *(no DB-backed
+  tests yet; manual grading, partial credit, timer enforcement and explanation
+  reveal are later cuts — see quizzes.md)*
 
 ## Verified this session
 - All 22 primary routes return 200 under an authenticated staff session.
@@ -103,12 +106,19 @@ time (env-pull redaction, deployment protection, git-author blocking).
    `router.refresh()` in the comment editor instead of `window.location.reload()`;
    per-field client hints exported from validation.ts so a student can retry
    without round-tripping.
-8. Phase 2 items not yet started: quizzes, certificates.
-9. Trackers follow-ups: a `trackers.dbtest.ts` (record upsert by partial-nullable
-   composite unique; reminder firing against `remindBeforeDays`; admin
-   subject-universe merges existing records); dashboard surfaces rendering
-   relevant tracker cards on the app/admin dashboards.
-10. Widgets follow-ups: a `widgets.dbtest.ts` (fresh snapshot skipped, expired
+8. Phase 2 items not yet started: certificates.
+9. Quizzes follow-ups: a `quizzes.dbtest.ts` (attempt resume-vs-create,
+   `@@unique([attemptId, questionId])` conflict handling, double-submit
+   refusal); manual grading for subjective answers (a staff console + a
+   `GRADED` state on the attempt, with `passed` resolved after grade); partial
+   credit for MULTI_CHOICE; `timeLimitMin` timer enforcement; showing
+   `explanation` on the result screen; an admin route list with `QuizWithAttempts`
+   style attempt counts on the console index.
+10. Trackers follow-ups: a `trackers.dbtest.ts` (record upsert by partial-nullable
+    composite unique; reminder firing against `remindBeforeDays`; admin
+    subject-universe merges existing records); dashboard surfaces rendering
+    relevant tracker cards on the app/admin dashboards.
+11. Widgets follow-ups: a `widgets.dbtest.ts` (fresh snapshot skipped, expired
     refreshed, throw recorded as `error` with bounded retry cadence); an
     `/admin/widgets` console with the setup checklist + refresh-now button;
     dashboard surfaces rendering on the app / admin dashboards.

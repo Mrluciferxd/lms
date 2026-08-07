@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-08-07 — Phase 2: quizzes (server layer + admin console + student taker)
+**What**: The quizzes subsystem gets its full surface. Server layer
+(`validation`/`access`/`quizzes`/`actions`) with auto-grading for
+SINGLE_CHOICE / MULTI_CHOICE / TRUE_FALSE and a pending-grade path for
+subjective types; an admin console (`/admin/quizzes`, `/admin/quizzes/new`,
+`/admin/quizzes/[id]`, gated by `course:write`) with a question editor; a
+student index + taker (`/app/quizzes`, `/app/quizzes/[id]`) with attempt
+history; and a "Take quiz" embed link on the lesson page when the lesson has a
+PUBLISHED quiz.
+**Why**: Fourth Week 9 subsystem (journals, data-widgets and trackers shipped;
+quizzes was the remaining one). The schema existed with no routes, no nav, no
+editor and no taker.
+**Impact**: 5 new routes. Grading is split — objective types auto-grade on
+submit, subjective types store `isCorrect: null`/`points: 0` with the attempt's
+`passed` left null for a manual-grade cut that is not yet built.
+`BrandFeatures.quizzes` defaults **false**, so the feature is opt-in per brand
+(unlike journals/trackers/widgets).
+**Files Changed**:
+- New: `src/server/quizzes/{validation,access,quizzes,actions}.ts` +
+  `{validation,access}.test.ts`, `src/components/quizzes/quiz-editor.tsx`,
+  `src/components/quizzes/quiz-taker.tsx`,
+  `src/app/app/quizzes/page.tsx`, `src/app/app/quizzes/[id]/page.tsx`,
+  `src/app/admin/quizzes/page.tsx`, `src/app/admin/quizzes/new/page.tsx`,
+  `src/app/admin/quizzes/[id]/page.tsx`, `knowledge-base/quizzes.md`.
+- Modified: `src/lib/labels.ts` (`nav.quizzes`), `src/lib/nav.ts` (APP_NAV +
+  ADMIN_NAV entries), lesson page (PUBLISHED-quiz embed link).
+- No schema change — `Quiz`/`Question`/`QuizAttempt`/`QuizAnswer` were already
+  in the original migration.
+**Tests**: 926 unit (was 899; +27 — response parsing, objective auto-grading,
+subjective pending-grade, `scoreAttempt` pass-boundary and clamping, and the
+read/take/start access matrix). Typecheck clean. Production build verified for
+`nirlep-forex` and `demo-academy`.
+**Decisions**:
+- Auto-grade only objective types; subjective answers keep `isCorrect: null`
+  and the attempt `passed: null`. MULTI_CHOICE is full-match only — no partial
+  credit. Manual grading, partial credit, timer enforcement and explanation
+  reveal are documented later cuts in quizzes.md.
+- `maxAttempts` counts submitted attempts; an in-flight attempt is resumed,
+  not burned. `startAttempt` pre-creates one `QuizAnswer` per question so
+  submit is a flat update keyed by the `@@unique([attemptId, questionId])`
+  index.
+- Student read shapes strip `correct` flags entirely — the taker never has
+  access to answers, only the score after submit.
+- `scoreAttempt` takes `{ grade, maxPoints }[]` because a failed answer stores
+  `points: 0`, so max score cannot be reconstructed from rows.
+
 ## 2026-08-05 — Phase 2: trackers UI (student surface + admin console)
 **What**: The trackers subsystem gets its surface. New student pages
 `/app/trackers` (list) and `/app/trackers/[key]` (per-type editor) render the

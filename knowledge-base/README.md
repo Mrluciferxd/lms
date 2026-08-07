@@ -89,6 +89,7 @@ src/server/          domain logic, one directory per subsystem
 | journals.md               | When touching journal definitions, entries, computed expressions |
 | widgets.md                | When touching data feeds, widget pages, or the widget refresh cron |
 | trackers.md               | When touching tracker definitions, per-type value shapes, or the admin record console |
+| quizzes.md                | When touching quiz authoring, attempts, auto-grading, or the student taker |
 
 The `docs/` directory holds the original client-facing design documents. This
 `knowledge-base/` is the operational record: what exists, why, and what bites.

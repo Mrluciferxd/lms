@@ -28,6 +28,7 @@ export const CORE_LABELS = {
   'nav.community': 'Community',
   'nav.journals': 'Journals',
   'nav.trackers': 'Trackers',
+  'nav.quizzes': 'Quizzes',
   'nav.progress': 'Progress',
   'nav.billing': 'Billing',
   'nav.settings': 'Settings',

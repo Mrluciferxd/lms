@@ -57,6 +57,14 @@ const APP_NAV: readonly CoreNavDefinition[] = [
     feature: 'trackers',
   },
   {
+    key: 'quizzes',
+    labelKey: 'nav.quizzes',
+    href: '/app/quizzes',
+    icon: 'list-checks',
+    order: 40,
+    feature: 'quizzes',
+  },
+  {
     key: 'assignments',
     labelKey: 'nav.assignments',
     href: '/app/assignments',
@@ -132,6 +140,15 @@ const ADMIN_NAV: readonly CoreNavDefinition[] = [
     icon: 'graduation-cap',
     order: 40,
     permission: 'student:read',
+  },
+  {
+    key: 'quizzes',
+    labelKey: 'nav.quizzes',
+    href: '/admin/quizzes',
+    icon: 'list-checks',
+    order: 45,
+    feature: 'quizzes',
+    permission: 'course:write',
   },
   {
     key: 'attendance',

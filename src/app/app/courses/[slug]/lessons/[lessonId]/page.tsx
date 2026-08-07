@@ -8,7 +8,7 @@ import { requireUser } from '@/server/auth/rbac'
 import { describeRelease } from '@/server/batches/release'
 import { getLessonAccess } from '@/server/catalog/access'
 import { db } from '@/server/db'
-import { getOrgSettings } from '@/server/org/settings'
+import { getOrgSettings, isFeatureEnabled } from '@/server/org/settings'
 
 export const metadata: Metadata = { title: 'Lesson' }
 
@@ -55,6 +55,13 @@ export default async function LessonPage({
     select: { lastPositionSec: true },
   })
 
+  const quiz = (await isFeatureEnabled('quizzes'))
+    ? await db.quiz.findFirst({
+        where: { lessonId: lesson.id, status: 'PUBLISHED' },
+        select: { id: true, title: true },
+      })
+    : null
+
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <nav aria-label="Breadcrumb" className="text-sm">
@@ -76,6 +83,23 @@ export default async function LessonPage({
         <p className="rounded-brand border border-surface-border bg-surface-muted px-4 py-6 text-sm text-content-muted">
           This lesson has no video attached yet.
         </p>
+      )}
+
+      {quiz && (
+        <div className="flex items-center justify-between gap-4 rounded-brand border border-surface-border bg-surface p-4">
+          <div className="space-y-0.5">
+            <h2 className="text-sm font-medium text-content">{quiz.title}</h2>
+            <p className="text-xs text-content-muted">
+              Test what you just learned.
+            </p>
+          </div>
+          <Link
+            href={`/app/quizzes/${quiz.id}`}
+            className="rounded-brand bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground"
+          >
+            Take quiz
+          </Link>
+        </div>
       )}
     </div>
   )

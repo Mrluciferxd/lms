@@ -70,7 +70,7 @@ imports a pack.
 ## Verification — what to run after touching this
 ```bash
 npm run typecheck
-npm test                       # 899 unit; trackers contribute +30
+npm test                       # 926 unit; trackers contribute +30
 NEXT_PUBLIC_BRAND=demo-academy npm run build   # 4 tracker routes built
 NEXT_PUBLIC_BRAND=nirlep-forex npm run build   # sequential — prisma generate races
 ```
